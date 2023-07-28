@@ -1,0 +1,57 @@
+# PURPOSE: Load DNA sequences from an enzyme library, align those sequences (DNA or AA) to a
+           # sequence that you provide and expect to find and use that to extract the variant
+           # sequences that are of a matching length to the wild type sequence that you provide
+
+
+import pickle as pkl
+from functionsIR import inhibitorResistance
+
+
+# ========================================= User Inputs =========================================
+# Input 1: File Location Information
+inFilePath = 'C:\\Users\\ca34522\\Documents\\dataYESS\\Mpro2'
+inFileName = 'inhibitorResistance'
+inFileType = 'fastq'
+inSavePath = 'C:\\Users\\ca34522\\Documents\\dataYESS\\Mpro2'
+
+# Input 2: Alignment Verifications
+inAlignOnly = 0 # Set = 1, to only align the sequences and not save any data
+inAlignmentSequence = 'CAATATTTTCTGTTATTGCTTCAGTTTTAGCA' # 'SGFRKM' # Non-mutated primer sequence
+inAlignPrimer = 1 # If: inAlignmentSequence is a primer sequence outside of peptide, set this = 1
+inAlignmentAttempts = 500 # Define the number of DNA sequences used for alignment
+inPrintNumber = 50 # Define the number of variants you would like printed after expression
+
+# Input 3: Figure Parameters
+inPlotTitleSize = 18
+inPlotLabelSize = 15
+inPrintResideName = 0 # 0 for full name, 1 for 3-letter code, 2 for 1 letter
+
+# Input 4: Enzyme information
+inEnzymeName = 'Mpro2' # Name your enzyme
+inEnzymeSequence = 'SGFRKMAFPSGKVEGCMVQVTCGTTTLNGLWLDDVVYCPRHVICTSEDMLNPNYEDLLIRKSNHNFLVQAGNVQLRVIGHSMQNCVLKLKVDTANPKTPKYKFVRIQPGQTFSVLACYNGSPSGVYQCAMRPNFTIKGSFLNGSCGSVGFNIDYDCVSFCYMHHMELPTGVHAGTDLEGNFYGPFVDRQTAQAAGTDTTITVNVLAWLYAAVINGDRWFLNRFTTTLNDFNLVAMKYNYEPLTQDHVDILGPLSAQTGIAVLDMCASLKELLQNGMNGRTILGSALLEDEFTPFDVVRQCSGVTFQ'
+inEnzymeLenght = len(inEnzymeSequence) # Specify the length of your enzyme
+
+
+# ===================================== Define Residue List =====================================
+# Only change this if you want a unique list of amino acids and not the standard 20
+residues = None
+
+
+# ========================================= RUN THE CODE =========================================
+ir = inhibitorResistance(enzymeName=inEnzymeName, wtEnzyme=inEnzymeSequence, residues=residues,
+                         seqLength=inEnzymeLenght, printNumber=inPrintNumber,
+                         residueLabelType=inPrintResideName, titleLabelSize=inPlotTitleSize,
+                         axisLabelSize=inPlotLabelSize)
+
+
+variants = ir.loadDNASeq(path=inFilePath, fileName=inFileName, fileType=inFileType,
+                         alignmentSequence=inAlignmentSequence,
+                         alignmentAttempts=inAlignmentAttempts, alignOnly=inAlignOnly)
+
+
+if inAlignOnly != 1:
+    # Save expressed variants
+    savePath = inSavePath + '\\' + inFileName + '_variantsLong_' + inEnzymeName
+    print(f'Data saved at: {savePath}')
+    with open(savePath, 'wb') as file:
+        pkl.dump(variants, file)
