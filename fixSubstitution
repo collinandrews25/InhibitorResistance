@@ -1,0 +1,132 @@
+# PURPOSE: Fix a single residue change and visualize what other alterations are co-occurrent
+
+
+import os
+import pickle as pkl
+from functionsIR import inhibitorResistance
+
+
+# ========================================= User Inputs =========================================
+# Input 1: Loading the data
+inFilePath = 'C:\\Users\\ca34522\\Documents\\dataYESS\\Mpro2'
+inFileName = 'inhibitorResistance'
+
+# Input 2: Enzyme information
+inFixVariation = 'D197T' # Define as: Residue to fix, Position in the sequence
+inEnzymeName = 'Mpro2' # Name your enzyme
+inEnzymeSequence = 'SGFRKMAFPSGKVEGCMVQVTCGTTTLNGLWLDDVVYCPRHVICTSEDMLNPNYEDLLIRKSNHNFLVQAGNVQLRVIGHSMQNCVLKLKVDTANPKTPKYKFVRIQPGQTFSVLACYNGSPSGVYQCAMRPNFTIKGSFLNGSCGSVGFNIDYDCVSFCYMHHMELPTGVHAGTDLEGNFYGPFVDRQTAQAAGTDTTITVNVLAWLYAAVINGDRWFLNRFTTTLNDFNLVAMKYNYEPLTQDHVDILGPLSAQTGIAVLDMCASLKELLQNGMNGRTILGSALLEDEFTPFDVVRQCSGVTFQ'
+inEnzymeLenght = len(inEnzymeSequence) # Specify the length of your enzyme
+
+# Input 3: Verifications
+inVariantPrintNumber = 25 # Define the number of variants you would like printed after expression
+
+# Input 4: Figure Parameters
+inPlotCounts = 0
+inPrintSubstitutions = 0
+inPlotVariantsWithUniqueMarkers = 1
+inPrintRF = 0
+inPrintEnrichment = 0
+inPlotEnrichment = 0
+inMarkerColors = ['darkorange', 'black', 'mediumblue', 'lime', 'cyan', 'magenta', 'gold']
+inPlotTitleSize = 18
+inPlotLabelSize = 15
+inPrintResideName = 2 # 0 for full name, 1 for 3-letter code, 2 for 1 letter
+inColorScheme = ['black', 'teal', 'navy', 'darkorange', 'gold', 'orange', 'mediumblue', 'dimgrey',
+               'lightseagreen', 'grey', 'darkgrey', 'darkturquoise', 'yellow', 'limegreen',
+               'silver', 'fuchsia', 'violet', 'lime', 'greenyellow', 'gainsboro']
+inYMax = 8000
+inYMin = -500
+inXMax = inEnzymeLenght + 14
+inXMin = -11
+inLegendXCoord = 0.16
+inLegendYCoord = 0.665
+inEnrichmentColorMap = ['navy', 'royalblue', 'dodgerblue', 'lightskyblue', 'white', 'white',
+                        'white', 'lightcoral', 'red', 'firebrick', 'darkred']
+
+
+# ===================================== Define Residue List =====================================
+# Only change this if you want a unique list of amino acids and not the standard 20
+residues = None
+
+
+# ========================================= RUN THE CODE =========================================
+ir = inhibitorResistance(enzymeName=inEnzymeName + ' ' + inFixVariation, residues=residues,
+                         wtEnzyme=inEnzymeSequence, seqLength=inEnzymeLenght,
+                         printNumber=inVariantPrintNumber, residueLabelType=inPrintResideName,
+                         titleLabelSize=inPlotTitleSize, axisLabelSize=inPlotLabelSize)
+
+# Load variants & their counts
+filePath = inFilePath + '\\' + inFileName + '_variants_' + inEnzymeName
+variants = ir.loadVariants(path=inFilePath, fileName=inFileName, enzymeName=inEnzymeName)
+
+variantCounts = ir.loadVariantCounts(filePath=inFilePath, fileName=inFileName,
+                                         enzymeName=inEnzymeName)
+
+
+# Extract sequences that contain a specific variation
+fixedVariants = ir.fixVariation(variants=variants, variation=inFixVariation)
+
+# Save the fixed variants
+savePath = inFilePath + '\\' + inFileName + '_fixedVariant_' + inFixVariation + '_' + inEnzymeName
+with open(savePath, 'wb') as file:
+    pkl.dump(fixedVariants, file)
+print(f'Common variants saved at: {savePath}')
+print('')
+print('')
+
+
+# Determine if the fixed variant has been counted, if not count it
+path = inFilePath + '\\' + inFileName + '_fixedVariantCounts_' + inFixVariation + '_' + \
+       inEnzymeName
+if os.path.exists(path):
+    fixedVariantCounts = ir.loadFixedVariantCounts(filePath=inFilePath, fileName=inFileName,
+                                                   enzymeName=inEnzymeName,
+                                                   fixedAA=inFixVariation)
+else:
+    # Count the occurrences of other co-occurrent variations
+    fixedVariantCounts = ir.countResidues(fixedVariants, datasetName=inEnzymeName + ' ' +
+                                                                     inFixVariation)
+
+    # Save fixed variant counts
+    savePath = inFilePath + '\\' + inFileName + '_fixedVariantCounts_' + inFixVariation + '_' +\
+               inEnzymeName
+    print(f'Data saved at: {savePath}')
+    print('')
+    with open(savePath, 'wb') as file:
+        pkl.dump(fixedVariantCounts, file)
+
+
+# Determine prevalent variants that co-occur with your fixed variation
+prevalentVariants, secondVariants = ir.evaluateVarinats(countedData=fixedVariantCounts,
+                                                        colorSet=inMarkerColors,
+                                                        printVariants=inPrintSubstitutions)
+
+if inPlotVariantsWithUniqueMarkers == 1:
+    ir.plotVariantsUniqueMarker(substitutions=prevalentVariants, xMin=inXMin, xMax=inXMax,
+                                yMax=inYMax, yMin=inYMin, secondVariants=0, xCoord=inLegendXCoord,
+                                yCoord=inLegendYCoord, colorSet=inMarkerColors)
+    ir.plotVariantsUniqueMarker(substitutions=secondVariants, xMin=inXMin, xMax=inXMax,
+                                yMax=inYMax, yMin=inYMin, secondVariants=1, xCoord=inLegendXCoord,
+                                yCoord=inLegendYCoord, colorSet=inMarkerColors)
+else:
+    ir.plotVariants(substitutions=prevalentVariants, xMin=inXMin, xMax=inXMax, yMax=inYMax,
+                    yMin=inYMin, secondVariants=0)
+    ir.plotVariants(substitutions=secondVariants, xMin=inXMin, xMax=inXMax, yMax=inYMax,
+                    yMin=inYMin, secondVariants=1)
+
+
+if inPlotEnrichment == 1:
+    # Calculate RF
+    variantRF = ir.calculateRF(counts=variantCounts, totalSequences=len(variants),
+                               printRF=inPrintRF)
+    fixedVariantRF = ir.calculateRF(counts=fixedVariantCounts, totalSequences=len(fixedVariants),
+                                    printRF=inPrintRF)
+
+    # Calculate enrichment
+    enrichmentScores = ir.calculateEnrichment(fixedRF=fixedVariantRF, variantRF=variantRF,
+                                              printEnrichment=inPrintEnrichment)
+
+    enrichmentScores = enrichmentScores.T
+
+    ir.plotEnrichmentScores(scores=enrichmentScores, colors=inEnrichmentColorMap)
+
