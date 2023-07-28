@@ -1,0 +1,110 @@
+# PURPOSE: Determine which substitutions are most prevalent in your dataset
+
+
+import os
+import pickle as pkl
+from functionsIR import inhibitorResistance
+
+
+# ========================================= User Inputs =========================================
+# Input 1: File Location Information
+inFilePath = 'C:\\Users\\ca34522\\Documents\\dataYESS\\Mpro2'
+inFileName = 'inhibitorResistance'
+inSavePath = 'C:\\Users\\ca34522\\Documents\\dataYESS\\Mpro2'
+
+# Input 2: Enzyme information
+inEnzymeName = 'Mpro2' # Name your enzyme
+inEnzymeSequence = 'SGFRKMAFPSGKVEGCMVQVTCGTTTLNGLWLDDVVYCPRHVICTSEDMLNPNYEDLLIRKSNHNFLVQAGNVQLRVIGHSMQNCVLKLKVDTANPKTPKYKFVRIQPGQTFSVLACYNGSPSGVYQCAMRPNFTIKGSFLNGSCGSVGFNIDYDCVSFCYMHHMELPTGVHAGTDLEGNFYGPFVDRQTAQAAGTDTTITVNVLAWLYAAVINGDRWFLNRFTTTLNDFNLVAMKYNYEPLTQDHVDILGPLSAQTGIAVLDMCASLKELLQNGMNGRTILGSALLEDEFTPFDVVRQCSGVTFQ'
+inEnzymeLenght = len(inEnzymeSequence) # Specify the length of your enzyme
+
+# Input 3: Verifications
+inVariantPrintNumber = 10 # Define the number of variants you would like printed after expression
+
+# Input 4: Figure Parameters
+inPlotCounts = 0
+inPrintSubstitutions = 1
+inPlotVariantsWithUniqueMarkers = 1
+inMarkerColors = ['darkorange', 'black', 'mediumblue', 'lime', 'cyan', 'magenta', 'gold']
+inPlotTitleSize = 18
+inPlotLabelSize = 15
+inPrintResideName = 1 # 0 for full name, 1 for 3-letter code, 2 for 1 letter
+inColorScheme = ['black', 'teal', 'navy', 'darkorange', 'gold', 'orange', 'mediumblue', 'dimgrey',
+               'lightseagreen', 'grey', 'darkgrey', 'darkturquoise', 'yellow', 'limegreen',
+               'silver', 'fuchsia', 'violet', 'lime', 'greenyellow', 'gainsboro']
+inYMax = 18000
+inYMin = 0
+inXMax = 320
+inXMin = -11
+inLegendXCoord = 0.2
+inLegendYCoord = 0.65
+
+
+# ===================================== Define Residue List =====================================
+# Only change this if you want a unique list of amino acids and not the standard 20
+residues = None
+
+
+# ========================================= RUN THE CODE =========================================
+ir = inhibitorResistance(enzymeName=inEnzymeName, wtEnzyme=inEnzymeSequence, residues=residues,
+                         seqLength=inEnzymeLenght, printNumber=inVariantPrintNumber,
+                         residueLabelType=inPrintResideName, titleLabelSize=inPlotTitleSize,
+                         axisLabelSize=inPlotLabelSize)
+
+
+path = inFilePath + '\\' + inFileName + '_variantCounts_' + inEnzymeName
+if os.path.exists(path):
+    variantCounts = ir.loadVariantCounts(filePath=inFilePath, fileName=inFileName,
+                                         enzymeName=inEnzymeName)
+else:
+    # If the variants have not been counted, load the sequences and count them
+    variants = ir.loadVariants(path=inFilePath, enzymeName=inEnzymeName, fileName=inFileName)
+
+    # Count the occurrences of AA substitutions in your data
+    variantCounts = ir.countResidues(variants=variants, datasetName=inEnzymeName)
+
+    # Save expressed variants
+    savePath = inSavePath + '\\' + inFileName + '_variantCounts_' + inEnzymeName
+    print(f'Data saved at: {savePath}')
+    print('')
+    print('')
+    with open(savePath, 'wb') as file:
+        pkl.dump(variantCounts, file)
+
+
+if inPlotCounts == 1:
+    ir.plotCounts(countedData=variantCounts, colors=inColorScheme)
+
+
+# Determine the most prevalent substitutions at each position
+prevalentVariants, secondVariants = ir.evaluateVarinats(countedData=variantCounts,
+                                                        colorSet=inMarkerColors,
+                                                        printVariants=inPrintSubstitutions)
+
+# Save the prevalent variants
+savePath = inSavePath + '\\' + inFileName + '_commonVariants_' + inEnzymeName
+print(f'Common variants saved at: {savePath}')
+print('')
+with open(savePath, 'wb') as file:
+    pkl.dump(prevalentVariants, file)
+
+
+savePath2 = inSavePath + '\\' + inFileName + '_otherCommonVariants_' + inEnzymeName
+print(f'Other common variants saved at: {savePath2}')
+print('')
+with open(savePath2, 'wb') as file:
+    pkl.dump(secondVariants, file)
+
+
+# Plot the prevalent variants
+if inPlotVariantsWithUniqueMarkers == 1:
+    ir.plotVariantsUniqueMarker(substitutions=prevalentVariants, xMin=inXMin, xMax=inXMax,
+                                yMax=inYMax, yMin=inYMin, secondVariants=0, xCoord=inLegendXCoord,
+                                yCoord=inLegendYCoord, colorSet=inMarkerColors)
+    ir.plotVariantsUniqueMarker(substitutions=secondVariants, xMin=inXMin, xMax=inXMax,
+                                yMax=inYMax, yMin=inYMin, secondVariants=1, xCoord=inLegendXCoord,
+                                yCoord=inLegendYCoord, colorSet=inMarkerColors)
+else:
+    ir.plotVariants(substitutions=prevalentVariants, xMin=inXMin, xMax=inXMax, yMax=inYMax,
+                    yMin=inYMin, secondVariants=0)
+    ir.plotVariants(substitutions=secondVariants, xMin=inXMin, xMax=inXMax, yMax=inYMax,
+                    yMin=inYMin, secondVariants=1)
