@@ -1,0 +1,691 @@
+# PURPOSE: This script contains the functions used to evaluate enzymatic inhibitor resistance
+
+
+import os
+import sys
+import numpy as np
+import pandas as pd
+import pickle as pkl
+import seaborn as sns
+from Bio import SeqIO
+from Bio.Seq import Seq
+import sklearn.cluster as cluster
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+
+
+# ===================================== Define Residue List =====================================
+defaultResidues = (('Alanine', 'Ala', 'A'), ('Arginine', 'Arg', 'R'), ('Asparagine', 'Asn', 'N'),
+                   ('Aspartic Acid', 'Asp', 'D'), ('Cysteine', 'Cys', 'C'),
+                   ('Glutamic Acid', 'Glu', 'E'), ('Glutamine', 'Gln', 'Q'),
+                   ('Glycine', 'Gly', 'G'), ('Histidine', 'His ', 'H'),
+                   ('Isoleucine', 'Ile', 'I'), ('Leucine', 'Leu', 'L'), ('Lysine', 'Lys', 'K'),
+                   ('Methionine', 'Met', 'M'), ('Phenylalanine', 'Phe', 'F'),
+                   ('Proline', 'Pro', 'P'), ('Serine', 'Ser', 'S'), ('Threonine', 'Thr', 'T'),
+                   ('Tryptophan', 'Typ', 'W'), ('Tyrosine', 'Tyr', 'Y'), ('Valine', 'Val', 'V'))
+
+
+# ======================================= Define Functions =======================================
+class inhibitorResistance:
+    def __init__(self, enzymeName, residues, wtEnzyme, seqLength, printNumber, residueLabelType,
+                 titleLabelSize, axisLabelSize):
+        self.enzymeName = enzymeName
+        self.wtEnzymeSeq = wtEnzyme
+        if residues == None:
+            self.residues = defaultResidues
+        else:
+            self.residues = residues
+        self.residueLabelType = [residue[residueLabelType] for residue in self.residues]
+        self.residueSingleLetter = [residue[2] for residue in self.residues]
+        self.seqLength = seqLength
+        self.printNumber = printNumber
+        self.titleSize = titleLabelSize
+        self.axisLabelSize = axisLabelSize
+        self.totalVariants = 0
+
+
+    # Load and express DNA sequences
+    def loadDNASeq(self, path, fileName, fileType, alignmentSequence, alignmentAttempts,
+                   alignOnly):
+        print('============================= Load & Express DNA Sequences ======================='
+              '======')
+        fileLocation = path + '\\' + fileName + '.' + fileType
+        print(f'DNA sequences loaded from: {fileLocation}')
+        print('')
+
+        variants = []
+        extractionIteration = 0
+
+        # Verify of file exists at specified path
+        if not os.path.isfile(fileLocation):
+            print('ERROR: No file was found at the specified location')
+            sys.exit()
+
+        # Initialize
+        startPositions = {}
+        iteration = 0
+
+        # Load data and align the sequences
+        with open(fileLocation, 'r') as file:
+            data = SeqIO.parse(file, fileType)  # Access the data
+
+            for datapoint in data:
+                iteration += 1
+                if iteration == alignmentAttempts:
+                    break
+
+                dna = str(datapoint.seq)
+                try:
+                    # Is your alignment sequence found in the DNA sequences?
+                    startPosition = dna.index(alignmentSequence)
+
+                    if startPosition not in startPositions:
+                        # Account for a new starting position
+                        startPositions[startPosition] = {'startIndex': startPosition,
+                                                         'count': 1}
+                    else:
+                        # Increase the count for a previously discovered starting position
+                        startPositions[startPosition]['count'] += 1
+                except ValueError:
+                    continue
+
+
+        # Verify if alignments have been found
+        if startPositions == {}:
+            print(f'ERROR: The sequence {alignmentSequence} was not found in your dataset')
+            print('')
+            sys.exit()
+
+        for startPosition in startPositions:
+            print(f"Start position of protein sequence {alignmentSequence}: "
+                  f"{startPositions[startPosition]['startIndex']}")
+            print(f"    Count: {startPositions[startPosition]['count']}")
+        print('')
+
+        # Find the startPosition with the greatest count value
+        maxCountIndex = max(startPositions, key=lambda k: startPositions[k]['count'])
+        maxCountValue = startPositions[maxCountIndex]['count']
+        print(f"Starting position with the highest count: {maxCountIndex}")
+        print(f"    Count: {maxCountValue}")
+        print('')
+
+
+        initiateExpressionIdx = maxCountIndex + len(alignmentSequence)
+        terminateExpressionIndex = initiateExpressionIdx + (self.seqLength * 3)
+        print(f'Initiate expression at nucleotide {initiateExpressionIdx}')
+        print(f'Terminate expression at nucleotide {terminateExpressionIndex}')
+        print('')
+
+        lenghtExtractedDNA = terminateExpressionIndex - initiateExpressionIdx
+        print(f'Expressed nucleotide length: {lenghtExtractedDNA} bp')
+        print(f'Extracted protein length: {lenghtExtractedDNA / 3:.2f} AA')
+        print(f'    Expected protein length: {self.seqLength} AA')
+        print('')
+
+
+        if alignOnly != 1:
+            # Open file & extract the enzyme sequence
+            with open(fileLocation, 'r') as file:
+                print(f'Variants extracted from: {fileLocation}')
+                data = SeqIO.parse(file, fileType)  # Access the data
+
+                for datapoint in data:
+                    dna = str(datapoint.seq)
+                    protein = Seq.translate(dna[initiateExpressionIdx:terminateExpressionIndex]) # <======
+
+                    if 'X' and '*' not in protein:
+                        if extractionIteration < self.printNumber:
+                            extractionIteration += 1
+                            print(f'Expressed Sequence ({len(protein)} AA): {protein}')
+
+                        if len(protein) == self.seqLength: # <======
+                            variants.append(protein)
+
+            # Verify if variants have been extracted
+            if len(variants) == 0:
+                print('ERROR: No variants were extracted from file at:', {fileLocation})
+                sys.exit()
+            else:
+                self.totalVariants = len(variants)
+                print(f'Number of extracted variants: {self.totalVariants}')
+                print('')
+                print('')
+
+            return variants
+
+
+    def loadVariants(self, path, fileName, enzymeName):
+        print('================================ Load Variant Sequences =========================='
+              '======')
+        path = path + '\\' + fileName + '_variantsLong_' + enzymeName
+        print(f'Variants loaded from: {path}')
+        print('')
+
+        # Verify of file exists at specified path
+        if not os.path.isfile(path):
+            print('ERROR: No file was found at the specified location')
+            sys.exit()
+
+        with open(path, 'rb') as file:
+            variants = pkl.load(file)
+
+        self.totalVariants = len(variants)
+        print(f'Number of variants: {self.totalVariants}')
+        print('')
+        print('')
+
+        return variants
+
+
+    def countResidues(self, variants, datasetName):
+        print('================================= Calculate: AA Counts ==========================='
+              '======')
+
+        print(f'Enzyme Length: {self.seqLength}')
+
+        # Initialize the counts matrix
+        countedData = np.zeros((len(self.residues), int(self.seqLength+500)), dtype=int)
+
+        # Count the occurrences of each residue
+        iteration = 1
+        for protein in variants:
+            for idxAA in range(len(protein)): # range(self.seqLength): # <------
+                for idxR, residue in enumerate(self.residues):
+                    if protein[idxAA] == residue[2]:
+                        countedData[idxR][idxAA] += 1
+                        iteration += 1
+                        break
+
+        columnSumList = []
+        for idx in range(self.seqLength):
+            # Count the number of variants
+            columnSum = 0
+            for countList in countedData:
+                columnSum += countList[idx]
+            columnSumList.append(columnSum)  # Add columnSum to the list
+
+            if columnSum != columnSumList[0]:
+                print(f'ERROR: total counts in column {idx + 1}({columnSum}) =/= total counts'
+                      f' in column 1({columnSumList[0]})')
+                # sys.exit() # <------
+        print('')
+        self.totalVariants = columnSumList[0]
+        print('All columns in countedData have the same sum')
+
+
+        print(f'Number of Variants in {datasetName}: {self.totalVariants}')
+        print('')
+
+        return countedData
+
+
+    def loadVariantCounts(self, filePath, fileName, enzymeName):
+        print('==================================== Load: AA Counts ============================='
+              '=======')
+
+        path = filePath + '\\' + fileName + '_variantCounts_' + enzymeName
+        print(f'Counts were loaded from: {path}')
+        print('')
+
+        if not os.path.isfile(path):
+            print('ERROR: No file was found at the specified location')
+            sys.exit()
+
+        with open(path, 'rb') as file:
+            variantCounts = pkl.load(file)
+
+        # Count the number of variants
+        columnSum = 0
+        for countList in variantCounts:
+            columnSum += countList[0]
+        self.totalVariants = columnSum
+        print(f'Number of variants in {self.enzymeName}: {self.totalVariants}')
+        print('')
+        print('')
+
+        return variantCounts
+
+
+    def loadFixedVariantCounts(self, filePath, fileName, enzymeName, fixedAA):
+        print('================================= Load: Fixed AA Counts =========================='
+              '=======')
+
+        path = filePath + '\\' + fileName + '_fixedVariantCounts_' + fixedAA + '_' + enzymeName
+        print(f'Counts were loaded from: {path}')
+        print('')
+
+        if not os.path.isfile(path):
+            print('ERROR: No file was found at the specified location')
+            sys.exit()
+
+        with open(path, 'rb') as file:
+            fixedVariantCounts = pkl.load(file)
+
+            # Count the number of variants
+            columnSum = 0
+            for countList in fixedVariantCounts:
+                columnSum += countList[0]
+            if self.totalVariants == 0:
+                self.totalVariants = columnSum
+            else:
+                if columnSum == self.totalVariants:
+                    print(f'Number of variants in {self.enzymeName}: {self.totalVariants}')
+                    print('')
+                    print('')
+                else:
+                    print('ERROR: the sum of column 1 in fixedVariantCounts does not match the '
+                          'number of fixed variants')
+                    sys.exit()
+
+        return fixedVariantCounts
+
+
+    def plotCounts(self, countedData, colors):
+        # Set the number of columns per figure
+        totalXTicks = countedData.shape[1]
+
+        # Calculate the value used to split the counts into subplots
+        halfwayValue = round(countedData.shape[1] / 2)
+        
+        # Split the counted countedData
+        startColumn = 0
+        endColumn = min(startColumn + totalXTicks, countedData.shape[1]) # Ensure endColumn doesn't exceed countedData.shape[1]
+        subsetCountsA = countedData[:, startColumn:min(endColumn, halfwayValue)]
+        subsetCountsB = countedData[:, max(startColumn, halfwayValue + 1):endColumn]
+
+        # Create the figure and subplots
+        fig, ax = plt.subplots(2, 1, figsize=(16, 8))
+
+        # Adjust the spacing parameters
+        plt.subplots_adjust(left=0.06, bottom=0.1, right=0.94, top=0.93, wspace=0.05, hspace=0.3)
+
+        # Top subplot
+        axTop = ax[0]
+        xTop = np.arange(subsetCountsA.shape[1])
+        barWidth = 0.6
+        bottomTop = np.zeros(subsetCountsA.shape[1])
+
+        for i, residueLabel in enumerate(self.residueLabelType):
+            residueCounts = subsetCountsA[i]
+            axTop.bar(xTop, residueCounts, barWidth, bottom=bottomTop, label=residueLabel,
+                      color=colors[i], align='center')
+            bottomTop += residueCounts
+
+        # Add labels and titles for the top subplot
+        axTop.set_xlabel('Sequence Position', fontsize=self.axisLabelSize)
+        axTop.set_ylabel('Counts', fontsize=self.axisLabelSize)
+        axTop.set_title(f'{self.enzymeName} Variants: Substitution Counts',
+                        fontsize=self.titleSize, fontweight='bold')
+
+        # Set x-axis tick positions and labels for the top subplot
+        xtickPositionsTop = np.arange(subsetCountsA.shape[1])
+        xtickLabelsTop = range(startColumn + 1, min(endColumn, halfwayValue - 1) + 1)
+        axTop.set_xticks(xtickPositionsTop[::10])
+        axTop.set_xticklabels(xtickLabelsTop[::10], rotation=0)
+
+        # Bottom subplot
+        axBottom = ax[1]
+        xBottom = np.arange(subsetCountsB.shape[1])
+        bottomBottom = np.zeros(subsetCountsB.shape[1])
+
+        for i, residueLabel in enumerate(self.residueLabelType):
+            residueCounts = subsetCountsB[i]
+            axBottom.bar(xBottom, residueCounts, barWidth, bottom=bottomBottom,
+                         label=residueLabel, color=colors[i], align='center')
+
+            bottomBottom += residueCounts
+
+        # Add labels and titles for the bottom subplot
+        axBottom.set_xlabel('Sequence Position', fontsize=self.axisLabelSize)
+        axBottom.set_ylabel('Counts', fontsize=self.axisLabelSize)
+
+        # Set x-axis tick positions and labels for the bottom subplot
+        xtickPositionsBottom = np.arange(subsetCountsB.shape[1])
+        xtickLabelsBottom = range(max(startColumn, halfwayValue + 1), endColumn)
+        axBottom.set_xticks(xtickPositionsBottom[::10])
+        axBottom.set_xticklabels(xtickLabelsBottom[::10], rotation=0)
+
+        # Adjust the limits and spacing on the x-axis for both subplots
+        axTop.set_xlim(xTop[0] - 0.4, xTop[-1] + 0.4)
+        axBottom.set_xlim(xBottom[0] - 0.4, xBottom[-1] + 0.4)
+
+        # Add only one legend
+        axTop.legend(loc='best', bbox_to_anchor=(1, 0.5))
+
+        plt.show()
+
+
+    def evaluateVarinats(self, countedData, colorSet, printVariants):
+        print('=============================== Evaluate: Common Variants ========================'
+              '=======')
+
+        substitutionPosition = 1
+        substitutions = []
+        secondSubstitutions = []
+
+        for idx in range(len(countedData[0])):
+            position = countedData[:, idx]
+
+            # # Find the index of the most prevalent residue
+            # maxValue = np.max(position)
+            maxIndex = np.argmax(position)
+
+            # Set the maximum value equal to 0
+            position[maxIndex] = 0
+
+            # Find the most prevalent variation and its index
+            secondMaxValue = np.max(position)
+            secondMaxIndex = np.argmax(position)
+
+            # Assign a color to the substituted residue based upon its type
+            newResidue = self.residueSingleLetter[secondMaxIndex]
+            if newResidue in ['D', 'E']:
+                color = colorSet[0] # darkorange
+            elif newResidue in ['A', 'G', 'I', 'L', 'P', 'V']:
+                color = colorSet[1] # black
+            elif newResidue in ['N', 'Q']:
+                color = colorSet[2] # 'mediumblue'
+            elif newResidue in ['F', 'W', 'Y']:
+                color = colorSet[3] # 'lime'
+            elif newResidue in ['H', 'K', 'R']:
+                color = colorSet[4] # 'cyan'
+            elif newResidue in ['S', 'T']:
+                color = colorSet[5] # 'magenta'
+            elif newResidue in ['C', 'M']:
+                color = colorSet[6] # 'gold'
+
+            variantCode = (self.residueSingleLetter[maxIndex] + str(substitutionPosition) +
+                           newResidue)
+
+            # Add the values to the dictionary
+            substitutions.append({'variant': variantCode, 'counts': int(secondMaxValue),
+                             'color': color})
+
+            # Find the next most prevalent variation
+            # Set count of the most common substitution equal to 0
+            position[secondMaxIndex] = 0
+
+            # Find the second most common substitution and its index
+            thirdMaxValue = np.max(position)
+            thirdMaxIndex = np.argmax(position)
+
+            # Assign a color to the substituted residue based upon its type
+            newResidue = self.residueSingleLetter[thirdMaxIndex]
+            if newResidue in ['D', 'E']:
+                color = colorSet[0]  # darkorange
+            elif newResidue in ['A', 'G', 'I', 'L', 'P', 'V']:
+                color = colorSet[1]  # black
+            elif newResidue in ['N', 'Q']:
+                color = colorSet[2]  # 'mediumblue'
+            elif newResidue in ['F', 'W', 'Y']:
+                color = colorSet[3]  # 'lime'
+            elif newResidue in ['H', 'K', 'R']:
+                color = colorSet[4]  # 'cyan'
+            elif newResidue in ['S', 'T']:
+                color = colorSet[5]  # 'magenta'
+            elif newResidue in ['C', 'M']:
+                color = colorSet[6]  # 'gold'
+
+            variantCode = (self.residueSingleLetter[maxIndex] + str(substitutionPosition) +
+                           newResidue)
+
+            # Add the information to the dictionary
+            secondSubstitutions.append({'variant': variantCode, 'counts': int(thirdMaxValue),
+                                   'color': color})
+
+            if printVariants == 1:
+                print(f'Substitutions: {substitutions[idx]}')
+                print(f'    Second Substitutions: {secondSubstitutions[idx]}')
+                print('')
+
+            # Move to the next residue in the sequence and continue to the next iteration
+            substitutionPosition += 1
+
+
+        # Sort the variants based upon their count value
+        sortedSubstitutions = sorted(substitutions, key=lambda item: item['counts'],
+                                          reverse=True)
+        sortedSecondSubstitutions = sorted(secondSubstitutions,
+                                                key=lambda item: item['counts'], reverse=True)
+
+        # Print the most prevalent substitutions
+        iteration = 0
+        print('Most Common Variants')
+        for variantInfo in sortedSubstitutions:
+            variantCode, value = variantInfo['variant'], variantInfo['counts']
+            if iteration < self.printNumber:
+                iteration += 1
+                print(f"Variant: {variantCode}, Count: {value}")
+            else:
+                print(f'Top {self.printNumber} Variants')
+                break
+        print('')
+        iteration = 0
+        print('Second Most Common Variants')
+        for variantInfo in sortedSecondSubstitutions:
+            variantCode, value = variantInfo['variant'], variantInfo['counts']
+            if iteration < self.printNumber:
+                iteration += 1
+                print(f"Variant: {variantCode}, Count: {value}")
+            else:
+                print(f'Top {self.printNumber} Variants')
+                break
+        print('')
+
+        # Remove artifacts at fixed sequence location
+        for idx in range(len(countedData[0])):
+            if substitutions[idx]['counts'] == 0:
+                substitutions[idx]['variant'] = ''
+                substitutions[idx]['color'] = 'white'
+            if secondSubstitutions[idx]['counts'] == 0:
+                secondSubstitutions[idx]['variant'] = ''
+                secondSubstitutions[idx]['color'] = 'white'
+
+
+        columnSum = 0
+        if self.totalVariants == 0:
+            for countList in countedData:
+                columnSum += countList[0]
+
+            self.totalVariants = columnSum
+
+        print(f'Number of {self.enzymeName} Variants: {self.totalVariants}')
+        print('')
+
+        return substitutions, secondSubstitutions
+
+
+    def plotVariants(self, substitutions, xMax, xMin, yMax, yMin, secondVariants):
+        # Extract the x and y values for the scatter plot
+        xValues = range(len(substitutions))
+        yValues = [variant['counts'] for variant in substitutions]
+
+        plt.figure(figsize=(10, 6)) # (Width, Height)
+
+        # Create the scatter plot
+        plt.scatter(xValues, yValues, marker='o', s=20, color='darkorange')
+
+        # Annotate each data point with the variant code and count value
+        for x, y, variantCode in zip(xValues, yValues, substitutions):
+            plt.text(x, y, f"{variantCode['variant']}", ha='center', va='bottom', fontsize=10)
+
+        # Set the labels and title
+        if secondVariants == 0:
+            plt.title(f'Common {self.enzymeName} Variants', fontsize=self.titleSize,
+                      fontweight='bold')
+        elif secondVariants == 1:
+            plt.title(f'Second Most Common {self.enzymeName} Variants', fontsize=self.titleSize,
+                      fontweight='bold')
+
+        plt.xlabel('Substitution Position', fontsize=self.axisLabelSize)
+        plt.ylabel('Substitution Count', fontsize=self.axisLabelSize)
+
+        # Manually adjust the y-axis limits
+        plt.xlim(xmin=xMin, xmax=xMax)
+        plt.ylim(ymin=yMin, ymax=yMax)
+
+        plt.tight_layout()
+        plt.show()
+
+
+    def plotVariantsUniqueMarker(self, substitutions, xMax, xMin, yMax, yMin, secondVariants,
+                                 xCoord, yCoord, colorSet):
+        # Extract the x and y values for the scatter plot
+        xValues = range(len(substitutions))
+        yValues = [variant['counts'] for variant in substitutions]
+
+        plt.figure(figsize=(10, 6))  # (Width, Height)
+
+        # Extract the marker colors from the substitutions dictionary
+        markerColors = [variant['color'] for variant in substitutions]
+
+        # Create the scatter plot with marker colors
+        plt.scatter(xValues, yValues, marker='o', s=20, color=markerColors)
+
+        # Annotate each data point with the variant code and count value
+        for x, y, variantCode in zip(xValues, yValues, substitutions):
+            plt.text(x, y, f"{variantCode['variant']}", ha='center', va='bottom', fontsize=10)
+
+        # Set the labels and title
+        if secondVariants == 0:
+            plt.title(f'Common {self.enzymeName} Variants', fontsize=self.titleSize,
+                      fontweight='bold')
+        elif secondVariants == 1:
+            plt.title(f'Second Most Common {self.enzymeName} Variants', fontsize=self.titleSize,
+                      fontweight='bold')
+
+        plt.xlabel('Substitution Position', fontsize=self.axisLabelSize)
+        plt.ylabel('Substitution Count', fontsize=self.axisLabelSize)
+
+        # Manually adjust the y-axis limits
+        plt.xlim(xmin=xMin, xmax=xMax)
+        plt.ylim(ymin=yMin, ymax=yMax)
+
+        # Add legend
+        legendHandles = []
+        residueType = ['Acidic', 'Aliphatic', 'Amide', 'Aromatic', 'Basic', 'Hydroxyl', 'Sulfur']
+        for color, amino_acid in zip(colorSet, residueType):
+            legendHandles.append(plt.Line2D([], [], color=color, linestyle='', marker='o',
+                                            label=amino_acid))
+
+        plt.legend(handles=legendHandles, ncol=1, loc=(xCoord, yCoord))
+
+        plt.tight_layout()
+        plt.show()
+
+
+    def fixVariation(self, variants, variation):
+        print('==================================== Fixed Variants =============================='
+              '======')
+        # Determine what AA to fix and at what position
+        strLenght = len(variation)
+        fixedResidue = variation[-1]
+        fixedPosition = int(variation[1:(strLenght - 1)]) - 1 # Subtract 1 for indexing purposes
+        print(f'Extract {self.enzymeName} sequences with: {fixedResidue} at {fixedPosition + 1}')
+        print(f'    WT {self.enzymeName}: {self.wtEnzymeSeq[fixedPosition]} at '
+              f'{fixedPosition + 1}')
+        print('')
+
+        # Extract variants with desired alteration
+        fixedVariants = []
+        for sequence in variants:
+            if sequence[fixedPosition] == fixedResidue:
+                fixedVariants.append(sequence)
+
+        # Determine the number of fixed variants and update the totalVariants attribute
+        self.totalVariants = len(fixedVariants)
+        print(f'Number of extracted variants: {self.totalVariants}')
+        print('')
+        print('')
+
+        return fixedVariants
+
+
+    def calculateRF(self, counts, totalSequences, printRF):
+        RF = counts / totalSequences
+        if printRF == 1:
+            print('============================= Calculate: Relative Frequency =================='
+                  '===========')
+            print(RF)
+            print('')
+            print('')
+
+        return RF
+
+
+    def calculateEnrichment(self, fixedRF, variantRF, printEnrichment):
+        enrichment = np.log2(fixedRF / variantRF)
+        if printEnrichment == 1:
+            print('============================= Calculate: Enrichment Scores ==================='
+                  '==========')
+            print(enrichment)
+            print('')
+            print('')
+
+        return enrichment
+
+
+    def createCustomColorMap(colorMap):
+        # Create a smooth gradient colormap with the updated colorRange
+        colorList = [(i / (len(colorMap) - 1), color) for i, color in enumerate(colorMap)]
+        cMapCustom = LinearSegmentedColormap.from_list('custom_colormap', colorList)
+
+        return cMapCustom
+
+
+    def plotEnrichmentScores(self, scores, colors):
+        # Create heatmap
+        cMapCustom = inhibitorResistance.createCustomColorMap(colors)
+
+        # Convert the counts to a data frame for Seaborn heatmap
+        data = pd.DataFrame(scores, columns=self.residueLabelType)
+
+        # Find max and min values for the enrichment scores
+        if np.max(scores) >= np.min(scores):
+            cBarMax = np.max(scores)
+            cBarMin = -1 * cBarMax
+        else:
+            cBarMin = np.min(scores)
+            cBarMax = -1 * cBarMin
+
+        # Plot the heatmap with numbers centered inside the squares
+        fig, ax = plt.subplots(figsize=(7, 12))
+        heatmap = sns.heatmap(data, annot=False, fmt='.3f', cmap=cMapCustom, cbar=True,
+                              linewidths=0.5, linecolor='black', square=False, center=None,
+                              vmax=cBarMax, vmin=cBarMin)
+        ax.set_xlabel('Residue Substitution', fontsize=self.axisLabelSize)
+        ax.set_ylabel('Sequence Position', fontsize=self.axisLabelSize)
+
+        ax.set_title(f'{self.enzymeName} Enrichment Scores', fontsize=self.titleSize, fontweight='bold')
+        for _, spine in ax.spines.items():
+            spine.set_visible(True)
+
+        # Invert the y-axis
+        ax.invert_yaxis()
+
+        # Set invalid values to grey
+        cmap = plt.cm.get_cmap(cMapCustom)
+        cmap.set_bad(color='lightgrey')
+
+        # Modify the colorbar
+        cbar = heatmap.collections[0].colorbar
+        cbar.outline.set_linewidth(0.5)  # Set the width of the colorbar outline
+        cbar.outline.set_edgecolor('black')  # Set the color of the colorbar outline
+
+        # Set heatmap ticks
+        xTicksPositions = np.arange(0.5, 20, 1) # Adjust the spacing here
+        ax.set_xticks(xTicksPositions)
+        plt.xticks(rotation=0)
+
+        # Set y-ticks to start with 10 and increase by 10
+        maxYTicks = len(data)
+        stepSize = 10
+        yTicks = np.arange(10, maxYTicks, stepSize) + 0.5
+        ax.set_yticks(yTicks-1)
+
+        # Set the y-tick labels to be integers
+        yTickLabels = [int(y) for y in yTicks]  # Add 10 to match starting y-tick at 10
+        ax.set_yticklabels(yTickLabels, fontsize=10)
+
+        plt.tight_layout()
+        plt.show()
